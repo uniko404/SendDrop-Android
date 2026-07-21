@@ -6,18 +6,13 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Log;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -26,170 +21,132 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.WriterException;
-import com.google.zxing.common.BitMatrix;
-import com.google.zxing.qrcode.QRCodeWriter;
 import com.senddrop.android.App;
-import com.senddrop.android.R;  // <-- ЭТОТ ИМПОРТ
-import com.senddrop.server.HttpServer;
+import com.senddrop.android.Discovery;
+import com.senddrop.android.Peer;
+import com.senddrop.android.R;
+import com.senddrop.android.Transfer;
 
-import java.io.File;
-import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
-    
+public class MainActivity extends AppCompatActivity implements Discovery.OnPeerListChangedListener, Transfer.OnFileReceiveListener {
+
     private static final int REQUEST_CODE_PICK_FILE = 1001;
     private static final int REQUEST_PERMISSIONS = 1002;
-    
-    private HttpServer server;
+
+    private Discovery discovery;
+    private Transfer transfer;
+    private ListView peerListView;
+    private ArrayAdapter<String> peerAdapter;
+    private List<String> peerNames = new ArrayList<>();
+    private List<Peer> peerObjects = new ArrayList<>();
     private TextView statusText;
-    private TextView ipText;
-    private Button startButton;
-    private Button uploadButton;
-    private Button refreshButton;
-    private Button copyLinkButton;
-    private ImageView qrImage;
-    private ListView fileListView;
-    private ArrayAdapter<String> fileAdapter;
-    private List<String> fileNames = new ArrayList<>();
-    private List<File> fileObjects = new ArrayList<>();
-    
+    private TextView myIpText;
+    private Button refreshBtn;
+    private Button sendFileBtn;
+    private Peer selectedPeer = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        
-        server = new HttpServer();
-        
+
         statusText = findViewById(R.id.statusText);
-        ipText = findViewById(R.id.ipText);
-        startButton = findViewById(R.id.startButton);
-        uploadButton = findViewById(R.id.uploadButton);
-        refreshButton = findViewById(R.id.refreshButton);
-        copyLinkButton = findViewById(R.id.copyLinkButton);
-        qrImage = findViewById(R.id.qrImage);
-        fileListView = findViewById(R.id.fileListView);
-        
-        fileAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, fileNames);
-        fileListView.setAdapter(fileAdapter);
-        
-        fileListView.setOnItemClickListener((parent, view, position, id) -> {
-            Toast.makeText(this, "Файл: " + fileObjects.get(position).getName(), Toast.LENGTH_SHORT).show();
-        });
-        
-        fileListView.setOnItemLongClickListener((parent, view, position, id) -> {
-            deleteFile(position);
-            return true;
-        });
-        
+        myIpText = findViewById(R.id.ipText);
+        peerListView = findViewById(R.id.fileListView);
+        refreshBtn = findViewById(R.id.refreshButton);
+        sendFileBtn = findViewById(R.id.uploadButton);
+        Button copyLinkBtn = findViewById(R.id.copyLinkButton);
+
+        peerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, peerNames);
+        peerListView.setAdapter(peerAdapter);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (ContextCompat.checkSelfPermission(this, 
-                Manifest.permission.WRITE_EXTERNAL_STORAGE) 
-                != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                 Manifest.permission.READ_EXTERNAL_STORAGE}, 
-                    REQUEST_PERMISSIONS);
+                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                Manifest.permission.READ_EXTERNAL_STORAGE},
+                        REQUEST_PERMISSIONS);
             }
         }
-        
-        startButton.setOnClickListener(v -> toggleServer());
-        uploadButton.setOnClickListener(v -> selectFile());
-        refreshButton.setOnClickListener(v -> refreshFileList());
-        copyLinkButton.setOnClickListener(v -> copyLink());
-        
-        refreshFileList();
-    }
-    
-    private void toggleServer() {
-        if (server.isRunning()) {
-            server.stopServer();
-            startButton.setText("Запустить сервер");
-            statusText.setText("🔴 Сервер остановлен");
-            statusText.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
-            qrImage.setImageBitmap(null);
-            copyLinkButton.setEnabled(false);
-        } else {
-            if (server.startServer()) {
-                startButton.setText("Остановить сервер");
-                statusText.setText("🟢 Сервер запущен: " + server.getUrl());
-                statusText.setTextColor(getResources().getColor(android.R.color.holo_green_dark));
-                ipText.setText("IP: " + server.getUrl().replace("http://", "").split(":")[0]);
-                generateQR(server.getUrl());
-                copyLinkButton.setEnabled(true);
-                Toast.makeText(this, "Сервер запущен на " + server.getUrl(), Toast.LENGTH_LONG).show();
-            } else {
-                Toast.makeText(this, "Не удалось запустить сервер", Toast.LENGTH_SHORT).show();
+
+        String deviceName = Build.MODEL;
+        discovery = new Discovery(deviceName, this);
+        discovery.start();
+
+        transfer = new Transfer(App.FILES_DIR, this);
+        transfer.startServer();
+
+        myIpText.setText("Мой IP: " + getLocalIpAddress());
+
+        refreshBtn.setOnClickListener(v -> {
+            Toast.makeText(this, "Поиск устройств...", Toast.LENGTH_SHORT).show();
+        });
+
+        sendFileBtn.setOnClickListener(v -> {
+            if (selectedPeer == null) {
+                Toast.makeText(this, "Сначала выберите устройство из списка", Toast.LENGTH_SHORT).show();
+                return;
             }
-        }
-    }
-    
-    private void generateQR(String data) {
-        try {
-            QRCodeWriter writer = new QRCodeWriter();
-            BitMatrix bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, 512, 512);
-            int width = bitMatrix.getWidth();
-            int height = bitMatrix.getHeight();
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
-            for (int x = 0; x < width; x++) {
-                for (int y = 0; y < height; y++) {
-                    bitmap.setPixel(x, y, bitMatrix.get(x, y) ? Color.BLACK : Color.WHITE);
-                }
+            selectFileToSend();
+        });
+
+        copyLinkBtn.setOnClickListener(v -> {
+            String ip = getLocalIpAddress();
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("My IP", ip);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "IP скопирован: " + ip, Toast.LENGTH_SHORT).show();
+        });
+
+        peerListView.setOnItemClickListener((parent, view, position, id) -> {
+            if (position < peerObjects.size()) {
+                selectedPeer = peerObjects.get(position);
+                statusText.setText("Выбрано: " + selectedPeer.name + " (" + selectedPeer.ip + ")");
+                Toast.makeText(this, "Выбрано устройство: " + selectedPeer.name, Toast.LENGTH_SHORT).show();
             }
-            qrImage.setImageBitmap(bitmap);
-        } catch (WriterException e) {
-            Log.e("QR", "Error generating QR: " + e.getMessage());
-        }
+        });
+
+        statusText.setText("Ожидание устройств...");
     }
-    
-    private void selectFile() {
-        if (!server.isRunning()) {
-            Toast.makeText(this, "Сначала запустите сервер", Toast.LENGTH_SHORT).show();
-            return;
-        }
+
+    private void selectFileToSend() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("*/*");
         startActivityForResult(Intent.createChooser(intent, "Выберите файл"), REQUEST_CODE_PICK_FILE);
     }
-    
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE_PICK_FILE && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
-            if (uri != null) {
-                String filename = getFileName(uri);
-                try {
-                    File destFile = new File(App.FILES_DIR, filename);
-                    if (!destFile.getParentFile().exists()) {
-                        destFile.getParentFile().mkdirs();
-                    }
-                    try (InputStream is = getContentResolver().openInputStream(uri);
-                         OutputStream os = new FileOutputStream(destFile)) {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = is.read(buffer)) != -1) {
-                            os.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    Toast.makeText(this, "Файл загружен: " + filename, Toast.LENGTH_SHORT).show();
-                    refreshFileList();
-                } catch (Exception e) {
-                    Toast.makeText(this, "Ошибка загрузки: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            if (uri != null && selectedPeer != null) {
+                try (InputStream is = getContentResolver().openInputStream(uri)) {
+                    byte[] fileData = new byte[is.available()];
+                    is.read(fileData);
+                    String filename = getFileName(uri);
+                    transfer.sendFile(selectedPeer.ip, filename, fileData);
+                    Toast.makeText(this, "Отправка файла " + filename + " на " + selectedPeer.name, Toast.LENGTH_LONG).show();
+                } catch (IOException e) {
+                    Toast.makeText(this, "Ошибка чтения файла: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             }
         }
     }
-    
+
     private String getFileName(Uri uri) {
         String result = null;
         if (uri.getScheme().equals("content")) {
-            try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
                     int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                     if (nameIndex != -1) {
@@ -203,44 +160,66 @@ public class MainActivity extends AppCompatActivity {
         }
         return result;
     }
-    
-    private void refreshFileList() {
-        fileNames.clear();
-        fileObjects.clear();
-        List<File> files = server.getFileList();
-        for (File f : files) {
-            fileNames.add(f.getName() + " (" + formatSize(f.length()) + ")");
-            fileObjects.add(f);
+
+    private String getLocalIpAddress() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e("IP", "Error: " + e.getMessage());
         }
-        fileAdapter.notifyDataSetChanged();
+        return "127.0.0.1";
     }
-    
-    private void deleteFile(int position) {
-        File file = fileObjects.get(position);
-        if (file != null && file.exists() && file.delete()) {
-            Toast.makeText(this, "Файл удалён: " + file.getName(), Toast.LENGTH_SHORT).show();
-            refreshFileList();
-        } else {
-            Toast.makeText(this, "Не удалось удалить файл", Toast.LENGTH_SHORT).show();
-        }
+
+    @Override
+    public void onPeerAdded(Peer peer) {
+        runOnUiThread(() -> {
+            peerObjects.add(peer);
+            peerNames.add(peer.name + " (" + peer.ip + ")");
+            peerAdapter.notifyDataSetChanged();
+            statusText.setText("Найдено устройств: " + peerObjects.size());
+        });
     }
-    
-    private void copyLink() {
-        if (!server.isRunning()) {
-            Toast.makeText(this, "Сервер не запущен", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String url = server.getUrl();
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        ClipData clip = ClipData.newPlainText("SendDrop Link", url);
-        clipboard.setPrimaryClip(clip);
-        Toast.makeText(this, "Ссылка скопирована: " + url, Toast.LENGTH_SHORT).show();
+
+    @Override
+    public void onPeerRemoved(Peer peer) {
+        runOnUiThread(() -> {
+            for (int i = 0; i < peerObjects.size(); i++) {
+                if (peerObjects.get(i).ip.equals(peer.ip)) {
+                    peerObjects.remove(i);
+                    peerNames.remove(i);
+                    peerAdapter.notifyDataSetChanged();
+                    break;
+                }
+            }
+            if (selectedPeer != null && selectedPeer.ip.equals(peer.ip)) {
+                selectedPeer = null;
+                statusText.setText("Устройство отключено");
+            }
+            statusText.setText("Найдено устройств: " + peerObjects.size());
+        });
     }
-    
-    private String formatSize(long size) {
-        if (size < 1024) return size + " B";
-        if (size < 1048576) return String.format("%.1f KB", size / 1024.0);
-        if (size < 1073741824) return String.format("%.1f MB", size / 1048576.0);
-        return String.format("%.1f GB", size / 1073741824.0);
+
+    @Override
+    public void onFileReceived(String filename, long size) {
+        runOnUiThread(() -> {
+            Toast.makeText(this, "Файл получен: " + filename + " (" + size + " bytes)", Toast.LENGTH_LONG).show();
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (discovery != null) discovery.stop();
+        if (transfer != null) transfer.stopServer();
     }
 }

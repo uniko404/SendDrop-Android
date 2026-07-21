@@ -17,7 +17,7 @@
         android:theme="@style/Theme.SendDrop"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
-        
+
         <activity
             android:name="com.senddrop.ui.MainActivity"
             android:exported="true"
@@ -27,7 +27,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-            
+
     </application>
 
 </manifest>

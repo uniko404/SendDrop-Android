@@ -12,7 +12,7 @@ public class App extends Application {
         super.onCreate();
         instance = this;
         FILES_DIR = Environment.getExternalStoragePublicDirectory(
-            Environment.DIRECTORY_DOWNLOADS
+                Environment.DIRECTORY_DOWNLOADS
         ).getAbsolutePath() + "/SendDrop/";
     }
 
