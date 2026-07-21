@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📁 SendDrop"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔴 Сервер остановлен"
+            android:textSize="18sp"
+            android:textColor="@android:color/holo_red_dark"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/ipText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="IP: -"
+            android:textSize="14sp"
+            android:layout_marginBottom="16dp"/>
+
+        <ImageView
+            android:id="@+id/qrImage"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_marginBottom="16dp"
+            android:background="#FFFFFF"
+            android:padding="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <Button
+                android:id="@+id/startButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Запустить сервер"
+                android:textSize="14sp"
+                android:padding="8dp"/>
+
+            <Button
+                android:id="@+id/copyLinkButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Скопировать ссылку"
+                android:textSize="14sp"
+                android:padding="8dp"
+                android:enabled="false"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <Button
+                android:id="@+id/uploadButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📤 Загрузить файл"
+                android:textSize="14sp"
+                android:padding="8dp"/>
+
+            <Button
+                android:id="@+id/refreshButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🔄 Обновить"
+                android:textSize="14sp"
+                android:padding="8dp"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📂 Список файлов (нажмите для скачивания, долгое нажатие для удаления)"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp"
+            android:gravity="center"/>
+
+        <ListView
+            android:id="@+id/fileListView"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:layout_marginBottom="16dp"
+            android:background="#F5F5F5"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="v0.1.0-alpha"
+            android:textSize="12sp"
+            android:textColor="@android:color/darker_gray"/>
+
+    </LinearLayout>
+</ScrollView>
