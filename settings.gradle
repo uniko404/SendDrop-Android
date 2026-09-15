@@ -1,2 +1,9 @@
-rootProject.name = "TestApp"
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+rootProject.name = "SendDrop-Android"
 include ':app'

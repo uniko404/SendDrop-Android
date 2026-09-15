@@ -1,225 +1,226 @@
-package com.senddrop.ui;
+package com.senddrop.ui
 
-import android.Manifest;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.provider.OpenableColumns;
-import android.util.Log;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
-import android.widget.ListView;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.OpenableColumns
+import android.util.Log
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.ListView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.senddrop.android.App
+import com.senddrop.android.Discovery
+import com.senddrop.android.Peer
+import com.senddrop.android.R
+import com.senddrop.android.Transfer
+import java.io.IOException
+import java.net.NetworkInterface
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+class MainActivity : AppCompatActivity(), Discovery.OnPeerListChangedListener, Transfer.OnFileReceiveListener {
 
-import com.senddrop.android.App;
-import com.senddrop.android.Discovery;
-import com.senddrop.android.Peer;
-import com.senddrop.android.R;
-import com.senddrop.android.Transfer;
+    private var discovery: Discovery? = null
+    private var transfer: Transfer? = null
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.List;
+    // Инициализируем UI без дурацких null
+    private lateinit var peerListView: ListView
+    private lateinit var peerAdapter: ArrayAdapter<String>
+    private val peerNames = mutableListOf<String>()
+    private val peerObjects = mutableListOf<Peer>()
 
-public class MainActivity extends AppCompatActivity implements Discovery.OnPeerListChangedListener, Transfer.OnFileReceiveListener {
+    private lateinit var statusText: TextView
+    private lateinit var myIpText: TextView
+    private lateinit var refreshBtn: Button
+    private lateinit var sendFileBtn: Button
 
-    private static final int REQUEST_CODE_PICK_FILE = 1001;
-    private static final int REQUEST_PERMISSIONS = 1002;
+    private var selectedPeer: Peer? = null
 
-    private Discovery discovery;
-    private Transfer transfer;
-    private ListView peerListView;
-    private ArrayAdapter<String> peerAdapter;
-    private List<String> peerNames = new ArrayList<>();
-    private List<Peer> peerObjects = new ArrayList<>();
-    private TextView statusText;
-    private TextView myIpText;
-    private Button refreshBtn;
-    private Button sendFileBtn;
-    private Peer selectedPeer = null;
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        statusText = findViewById(R.id.statusText)
+        myIpText = findViewById(R.id.ipText)
+        peerListView = findViewById(R.id.fileListView)
+        refreshBtn = findViewById(R.id.refreshButton)
+        sendFileBtn = findViewById(R.id.uploadButton)
+        val copyLinkBtn = findViewById<Button>(R.id.copyLinkButton)
 
-        statusText = findViewById(R.id.statusText);
-        myIpText = findViewById(R.id.ipText);
-        peerListView = findViewById(R.id.fileListView);
-        refreshBtn = findViewById(R.id.refreshButton);
-        sendFileBtn = findViewById(R.id.uploadButton);
-        Button copyLinkBtn = findViewById(R.id.copyLinkButton);
-
-        peerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, peerNames);
-        peerListView.setAdapter(peerAdapter);
+        peerAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, peerNames)
+        peerListView.adapter = peerAdapter
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (ContextCompat.checkSelfPermission(this,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                Manifest.permission.READ_EXTERNAL_STORAGE},
-                        REQUEST_PERMISSIONS);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    ),
+                    REQUEST_PERMISSIONS
+                )
             }
         }
 
-        String deviceName = Build.MODEL;
-        discovery = new Discovery(deviceName, this);
-        discovery.start();
+        discovery = Discovery(Build.MODEL, this).apply { start() }
+        transfer = Transfer(App.FILES_DIR, this).apply { startServer() }
 
-        transfer = new Transfer(App.FILES_DIR, this);
-        transfer.startServer();
+        val currentIp = localIpAddress
+        myIpText.text = "Мой IP: $currentIp"
 
-        myIpText.setText("Мой IP: " + getLocalIpAddress());
+        // Нормальные Kotlin-лямбды
+        refreshBtn.setOnClickListener {
+            Toast.makeText(this, "Поиск устройств...", Toast.LENGTH_SHORT).show()
+        }
 
-        refreshBtn.setOnClickListener(v -> {
-            Toast.makeText(this, "Поиск устройств...", Toast.LENGTH_SHORT).show();
-        });
-
-        sendFileBtn.setOnClickListener(v -> {
+        sendFileBtn.setOnClickListener {
             if (selectedPeer == null) {
-                Toast.makeText(this, "Сначала выберите устройство из списка", Toast.LENGTH_SHORT).show();
-                return;
+                Toast.makeText(this, "Сначала выберите устройство из списка", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener // Теперь метка резолвится
             }
-            selectFileToSend();
-        });
+            selectFileToSend()
+        }
 
-        copyLinkBtn.setOnClickListener(v -> {
-            String ip = getLocalIpAddress();
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("My IP", ip);
-            clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "IP скопирован: " + ip, Toast.LENGTH_SHORT).show();
-        });
+        copyLinkBtn.setOnClickListener {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("My IP", currentIp)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "IP скопирован: $currentIp", Toast.LENGTH_SHORT).show()
+        }
 
-        peerListView.setOnItemClickListener((parent, view, position, id) -> {
-            if (position < peerObjects.size()) {
-                selectedPeer = peerObjects.get(position);
-                statusText.setText("Выбрано: " + selectedPeer.name + " (" + selectedPeer.ip + ")");
-                Toast.makeText(this, "Выбрано устройство: " + selectedPeer.name, Toast.LENGTH_SHORT).show();
+        peerListView.setOnItemClickListener { _, _, position, _ ->
+            if (position < peerObjects.size) {
+                val peer = peerObjects[position]
+                selectedPeer = peer
+                statusText.text = "Выбрано: ${peer.name} (${peer.ip})"
+                Toast.makeText(this, "Выбрано устройство: ${peer.name}", Toast.LENGTH_SHORT).show()
             }
-        });
+        }
 
-        statusText.setText("Ожидание устройств...");
+        statusText.text = "Ожидание устройств..."
     }
 
-    private void selectFileToSend() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType("*/*");
-        startActivityForResult(Intent.createChooser(intent, "Выберите файл"), REQUEST_CODE_PICK_FILE);
+    private fun selectFileToSend() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }
+        startActivityForResult(Intent.createChooser(intent, "Выберите файл"), REQUEST_CODE_PICK_FILE)
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_PICK_FILE && resultCode == RESULT_OK && data != null) {
-            Uri uri = data.getData();
-            if (uri != null && selectedPeer != null) {
-                try (InputStream is = getContentResolver().openInputStream(uri)) {
-                    byte[] fileData = new byte[is.available()];
-                    is.read(fileData);
-                    String filename = getFileName(uri);
-                    transfer.sendFile(selectedPeer.ip, filename, fileData);
-                    Toast.makeText(this, "Отправка файла " + filename + " на " + selectedPeer.name, Toast.LENGTH_LONG).show();
-                } catch (IOException e) {
-                    Toast.makeText(this, "Ошибка чтения файла: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_PICK_FILE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            val peer = selectedPeer ?: return
+
+            try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val fileData = ByteArray(stream.available())
+                    stream.read(fileData)
+
+                    // Жестко гарантируем строку, никаких String?
+                    val filename = getFileName(uri) ?: "unknown_file"
+                    transfer?.sendFile(peer.ip, filename, fileData)
+
+                    Toast.makeText(this, "Отправка файла $filename на ${peer.name}", Toast.LENGTH_LONG).show()
                 }
+            } catch (e: IOException) {
+                Toast.makeText(this, "Ошибка чтения файла: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private String getFileName(Uri uri) {
-        String result = null;
-        if (uri.getScheme().equals("content")) {
-            try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
-                if (cursor != null && cursor.moveToFirst()) {
-                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+    private fun getFileName(uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                     if (nameIndex != -1) {
-                        result = cursor.getString(nameIndex);
+                        result = cursor.getString(nameIndex)
                     }
                 }
             }
         }
-        if (result == null) {
-            result = uri.getLastPathSegment();
-        }
-        return result;
+        return result ?: uri.lastPathSegment
     }
 
-    private String getLocalIpAddress() {
-        try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements()) {
-                NetworkInterface iface = interfaces.nextElement();
-                Enumeration<InetAddress> addresses = iface.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    InetAddress addr = addresses.nextElement();
-                    if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) {
-                        return addr.getHostAddress();
+    // Возвращаем строго String, а не String?
+    private val localIpAddress: String
+        get() {
+            try {
+                val interfaces = NetworkInterface.getNetworkInterfaces()
+                for (iface in interfaces) {
+                    for (addr in iface.inetAddresses) {
+                        if (!addr.isLoopbackAddress && !addr.hostAddress.isNullOrEmpty() && !addr.hostAddress!!.contains(':')) {
+                            return addr.hostAddress!!
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e("IP", "Error: ${e.message}")
             }
-        } catch (Exception e) {
-            Log.e("IP", "Error: " + e.getMessage());
+            return "127.0.0.1"
         }
-        return "127.0.0.1";
+
+    // Сигнатуры исправлены на нуллабельные для совместимости с Java
+    override fun onPeerAdded(peer: Peer?) {
+        if (peer == null) return
+        runOnUiThread {
+            peerObjects.add(peer)
+            peerNames.add("${peer.name} (${peer.ip})")
+            peerAdapter.notifyDataSetChanged()
+            statusText.text = "Найдено устройств: ${peerObjects.size}"
+        }
     }
 
-    @Override
-    public void onPeerAdded(Peer peer) {
-        runOnUiThread(() -> {
-            peerObjects.add(peer);
-            peerNames.add(peer.name + " (" + peer.ip + ")");
-            peerAdapter.notifyDataSetChanged();
-            statusText.setText("Найдено устройств: " + peerObjects.size());
-        });
-    }
-
-    @Override
-    public void onPeerRemoved(Peer peer) {
-        runOnUiThread(() -> {
-            for (int i = 0; i < peerObjects.size(); i++) {
-                if (peerObjects.get(i).ip.equals(peer.ip)) {
-                    peerObjects.remove(i);
-                    peerNames.remove(i);
-                    peerAdapter.notifyDataSetChanged();
-                    break;
+    override fun onPeerRemoved(peer: Peer?) {
+        if (peer == null) return
+        runOnUiThread {
+            val iterator = peerObjects.iterator()
+            var index = 0
+            while (iterator.hasNext()) {
+                val current = iterator.next()
+                if (current.ip == peer.ip) {
+                    iterator.remove()
+                    if (index < peerNames.size) peerNames.removeAt(index)
+                    peerAdapter.notifyDataSetChanged()
+                    break
                 }
+                index++
             }
-            if (selectedPeer != null && selectedPeer.ip.equals(peer.ip)) {
-                selectedPeer = null;
-                statusText.setText("Устройство отключено");
+
+            if (selectedPeer?.ip == peer.ip) {
+                selectedPeer = null
+                statusText.text = "Устройство отключено"
             }
-            statusText.setText("Найдено устройств: " + peerObjects.size());
-        });
+            statusText.text = "Найдено устройств: ${peerObjects.size}"
+        }
     }
 
-    @Override
-    public void onFileReceived(String filename, long size) {
-        runOnUiThread(() -> {
-            Toast.makeText(this, "Файл получен: " + filename + " (" + size + " bytes)", Toast.LENGTH_LONG).show();
-        });
+    override fun onFileReceived(filename: String?, size: Long) {
+        runOnUiThread {
+            val safeName = filename ?: "unknown"
+            Toast.makeText(this, "Файл получен: $safeName ($size bytes)", Toast.LENGTH_LONG).show()
+        }
     }
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (discovery != null) discovery.stop();
-        if (transfer != null) transfer.stopServer();
+    override fun onDestroy() {
+        super.onDestroy()
+        discovery?.stop()
+        transfer?.stopServer()
+    }
+
+    companion object {
+        private const val REQUEST_CODE_PICK_FILE = 1001
+        private const val REQUEST_PERMISSIONS = 1002
     }
 }

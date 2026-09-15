@@ -1,7 +1,4 @@
 <resources>
-    <style name="Theme.SendDrop" parent="Theme.AppCompat.Light.DarkActionBar">
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="colorPrimaryDark">@color/purple_700</item>
-        <item name="colorAccent">@color/teal_200</item>
+    <style name="Theme.SendDrop" parent="Theme.Material3.DayNight.NoActionBar">
     </style>
 </resources>

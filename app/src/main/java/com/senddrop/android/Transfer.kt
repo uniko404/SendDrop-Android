@@ -1,115 +1,116 @@
-package com.senddrop.android;
+package com.senddrop.android
 
-import android.util.Log;
+import android.util.Log
+import java.io.BufferedInputStream
+import java.io.BufferedReader
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStreamReader
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+class Transfer(private val saveDir: String?, private val listener: OnFileReceiveListener?) {
+    private var serverSocket: ServerSocket? = null
+    private val executor: ExecutorService = Executors.newCachedThreadPool()
 
-public class Transfer {
-    private static final String TAG = "SendDropTransfer";
-    private static final int PORT = 8082;
-    private ServerSocket serverSocket;
-    private ExecutorService executor = Executors.newCachedThreadPool();
-    private OnFileReceiveListener listener;
-    private String saveDir;
-
-    public interface OnFileReceiveListener {
-        void onFileReceived(String filename, long size);
+    interface OnFileReceiveListener {
+        fun onFileReceived(filename: String?, size: Long)
     }
 
-    public Transfer(String saveDir, OnFileReceiveListener listener) {
-        this.saveDir = saveDir;
-        this.listener = listener;
-    }
-
-    public void startServer() {
-        executor.execute(() -> {
+    fun startServer() {
+        executor.execute(Runnable {
             try {
-                serverSocket = new ServerSocket(PORT);
-                Log.d(TAG, "Transfer server started on port " + PORT);
+                serverSocket = ServerSocket(PORT)
+                Log.d(TAG, "Transfer server started on port " + PORT)
                 while (true) {
-                    Socket client = serverSocket.accept();
-                    executor.execute(() -> handleClient(client));
+                    val client = serverSocket!!.accept()
+                    executor.execute(Runnable { handleClient(client) })
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Server error: " + e.getMessage());
+            } catch (e: Exception) {
+                Log.e(TAG, "Server error: " + e.message)
             }
-        });
+        })
     }
 
-    public void stopServer() {
+    fun stopServer() {
         try {
-            if (serverSocket != null && !serverSocket.isClosed()) {
-                serverSocket.close();
+            if (serverSocket != null && !serverSocket!!.isClosed()) {
+                serverSocket!!.close()
             }
-        } catch (Exception ignored) {}
-    }
-
-    private void handleClient(Socket socket) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             BufferedInputStream bis = new BufferedInputStream(socket.getInputStream())) {
-
-            // Читаем заголовок: SEND_FILE|filename|size
-            String header = reader.readLine();
-            if (header == null || !header.startsWith("SEND_FILE|")) {
-                return;
-            }
-            String[] parts = header.substring(10).split("\\|");
-            if (parts.length != 2) {
-                return;
-            }
-            String filename = parts[0];
-            long size = Long.parseLong(parts[1]);
-
-            // Читаем данные
-            byte[] data = new byte[(int) size];
-            int read = 0;
-            while (read < size) {
-                int n = bis.read(data, read, (int) size - read);
-                if (n < 0) break;
-                read += n;
-            }
-            if (read == size) {
-                // Сохраняем файл
-                File dir = new File(saveDir);
-                if (!dir.exists()) dir.mkdirs();
-                File file = new File(dir, filename);
-                try (FileOutputStream fos = new FileOutputStream(file)) {
-                    fos.write(data);
-                }
-                Log.d(TAG, "File saved: " + filename);
-                if (listener != null) {
-                    listener.onFileReceived(filename, size);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Handle client error: " + e.getMessage());
+        } catch (ignored: Exception) {
         }
     }
 
-    public void sendFile(String ip, String filename, byte[] data) {
-        executor.execute(() -> {
-            try (Socket socket = new Socket(ip, PORT);
-                 OutputStream os = socket.getOutputStream()) {
-                // Заголовок
-                String header = "SEND_FILE|" + filename + "|" + data.length + "\n";
-                os.write(header.getBytes());
-                os.write(data);
-                os.flush();
-                Log.d(TAG, "File sent: " + filename + " to " + ip);
-            } catch (Exception e) {
-                Log.e(TAG, "Send error: " + e.getMessage());
+    private fun handleClient(socket: Socket) {
+        try {
+            BufferedReader(InputStreamReader(socket.getInputStream())).use { reader ->
+                BufferedInputStream(socket.getInputStream()).use { bis ->
+
+                    // Читаем заголовок: SEND_FILE|filename|size
+                    val header = reader.readLine()
+                    if (header == null || !header.startsWith("SEND_FILE|")) {
+                        return
+                    }
+                    val parts =
+                        header.substring(10).split("\\|".toRegex()).dropLastWhile { it.isEmpty() }
+                            .toTypedArray()
+                    if (parts.size != 2) {
+                        return
+                    }
+                    val filename = parts[0]
+                    val size = parts[1].toLong()
+
+                    // Читаем данные
+                    val data = ByteArray(size.toInt())
+                    var read = 0
+                    while (read < size) {
+                        val n = bis.read(data, read, size.toInt() - read)
+                        if (n < 0) break
+                        read += n
+                    }
+                    if (read.toLong() == size) {
+                        // Сохраняем файл
+                        val dir = File(saveDir)
+                        if (!dir.exists()) dir.mkdirs()
+                        val file = File(dir, filename)
+                        FileOutputStream(file).use { fos ->
+                            fos.write(data)
+                        }
+                        Log.d(TAG, "File saved: " + filename)
+                        if (listener != null) {
+                            listener.onFileReceived(filename, size)
+                        }
+                    }
+                }
             }
-        });
+        } catch (e: Exception) {
+            Log.e(TAG, "Handle client error: " + e.message)
+        }
+    }
+
+    fun sendFile(ip: String?, filename: String, data: ByteArray) {
+        executor.execute(Runnable {
+            try {
+                Socket(ip, PORT).use { socket ->
+                    socket.getOutputStream().use { os ->
+                        // Заголовок
+                        val header = "SEND_FILE|" + filename + "|" + data.size + "\n"
+                        os.write(header.toByteArray())
+                        os.write(data)
+                        os.flush()
+                        Log.d(TAG, "File sent: " + filename + " to " + ip)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Send error: " + e.message)
+            }
+        })
+    }
+
+    companion object {
+        private const val TAG = "SendDropTransfer"
+        private const val PORT = 8082
     }
 }

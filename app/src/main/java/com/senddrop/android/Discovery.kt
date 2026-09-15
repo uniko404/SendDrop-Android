@@ -1,156 +1,157 @@
-package com.senddrop.android;
+package com.senddrop.android
 
-import android.util.Log;
+import android.util.Log
+import java.io.IOException
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.NetworkInterface
+import java.util.concurrent.ConcurrentHashMap
 
-import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+class Discovery(private val deviceName: String?, private val listener: OnPeerListChangedListener?) {
+    private val peers = ConcurrentHashMap<String?, Peer?>()
+    private val localIp: String
+    private var socket: DatagramSocket? = null
+    private var running = false
 
-public class Discovery {
-    private static final String TAG = "SendDropDiscovery";
-    private static final int PORT = 9999;
-    private static final String DISCOVERY_MSG = "SENDDROP_DISCOVERY";
-    private static final String RESPONSE_PREFIX = "SENDDROP_RESPONSE|";
-
-    private ConcurrentHashMap<String, Peer> peers = new ConcurrentHashMap<>();
-    private OnPeerListChangedListener listener;
-    private String localIp;
-    private String deviceName;
-    private DatagramSocket socket;
-    private boolean running = false;
-
-    public interface OnPeerListChangedListener {
-        void onPeerAdded(Peer peer);
-        void onPeerRemoved(Peer peer);
+    interface OnPeerListChangedListener {
+        fun onPeerAdded(peer: Peer?)
+        fun onPeerRemoved(peer: Peer?)
     }
 
-    public Discovery(String deviceName, OnPeerListChangedListener listener) {
-        this.deviceName = deviceName;
-        this.listener = listener;
-        this.localIp = getLocalIpAddress();
+    init {
+        this.localIp = this.localIpAddress
     }
 
-    public void start() {
-        running = true;
-        startBroadcastThread();
-        startListenThread();
+    fun start() {
+        running = true
+        startBroadcastThread()
+        startListenThread()
     }
 
-    public void stop() {
-        running = false;
-        if (socket != null && !socket.isClosed()) {
-            socket.close();
+    fun stop() {
+        running = false
+        if (socket != null && !socket!!.isClosed()) {
+            socket!!.close()
         }
     }
 
-    public List<Peer> getPeers() {
-        return new ArrayList<>(peers.values());
+    fun getPeers(): MutableList<Peer?> {
+        return ArrayList<Peer?>(peers.values)
     }
 
-    private void startBroadcastThread() {
-        new Thread(() -> {
+    private fun startBroadcastThread() {
+        Thread(Runnable {
             while (running) {
-                try (DatagramSocket ds = new DatagramSocket()) {
-                    ds.setBroadcast(true);
-                    byte[] data = DISCOVERY_MSG.getBytes();
-                    DatagramPacket packet = new DatagramPacket(
+                try {
+                    DatagramSocket().use { ds ->
+                        ds.setBroadcast(true)
+                        val data: ByteArray = DISCOVERY_MSG.toByteArray()
+                        val packet = DatagramPacket(
                             data,
-                            data.length,
+                            data.size,
                             InetAddress.getByName("255.255.255.255"),
                             PORT
-                    );
-                    ds.send(packet);
-                } catch (IOException e) {
-                    Log.e(TAG, "Broadcast error: " + e.getMessage());
+                        )
+                        ds.send(packet)
+                    }
+                } catch (e: IOException) {
+                    Log.e(TAG, "Broadcast error: " + e.message)
                 }
                 try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException ignored) {}
+                    Thread.sleep(3000)
+                } catch (ignored: InterruptedException) {
+                }
             }
-        }).start();
+        }).start()
     }
 
-    private void startListenThread() {
-        new Thread(() -> {
+    private fun startListenThread() {
+        Thread(Runnable {
             try {
-                socket = new DatagramSocket(PORT);
-                socket.setBroadcast(true);
-                byte[] buffer = new byte[1024];
+                socket = DatagramSocket(PORT)
+                socket!!.setBroadcast(true)
+                val buffer = ByteArray(1024)
                 while (running) {
-                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                    socket.receive(packet);
-                    String msg = new String(packet.getData(), 0, packet.getLength());
-                    InetAddress remoteAddr = packet.getAddress();
-                    String remoteIp = remoteAddr.getHostAddress();
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    socket!!.receive(packet)
+                    val msg = String(packet.getData(), 0, packet.getLength())
+                    val remoteAddr = packet.getAddress()
+                    val remoteIp = remoteAddr.getHostAddress()
 
-                    if (msg.equals(DISCOVERY_MSG)) {
+                    if (msg == DISCOVERY_MSG) {
                         // Кто-то ищет устройства – отвечаем
-                        String response = RESPONSE_PREFIX + localIp + "|" + deviceName;
-                        byte[] respData = response.getBytes();
-                        DatagramPacket reply = new DatagramPacket(
-                                respData,
-                                respData.length,
-                                remoteAddr,
-                                packet.getPort()
-                        );
-                        socket.send(reply);
+                        val response: String = RESPONSE_PREFIX + localIp + "|" + deviceName
+                        val respData = response.toByteArray()
+                        val reply = DatagramPacket(
+                            respData,
+                            respData.size,
+                            remoteAddr,
+                            packet.getPort()
+                        )
+                        socket!!.send(reply)
                     } else if (msg.startsWith(RESPONSE_PREFIX)) {
                         // Получили ответ от другого устройства
-                        String[] parts = msg.substring(RESPONSE_PREFIX.length()).split("\\|");
-                        if (parts.length >= 2) {
-                            String ip = parts[0];
-                            String name = parts[1];
-                            if (!ip.equals(localIp)) {
-                                addPeer(ip, name);
+                        val parts = msg.substring(RESPONSE_PREFIX.length).split("\\|".toRegex())
+                            .dropLastWhile { it.isEmpty() }.toTypedArray()
+                        if (parts.size >= 2) {
+                            val ip = parts[0]
+                            val name: String? = parts[1]
+                            if (ip != localIp) {
+                                addPeer(ip, name)
                             }
                         }
                     }
                 }
-            } catch (IOException e) {
-                Log.e(TAG, "Listen error: " + e.getMessage());
+            } catch (e: IOException) {
+                Log.e(TAG, "Listen error: " + e.message)
             }
-        }).start();
+        }).start()
     }
 
-    private void addPeer(String ip, String name) {
+    private fun addPeer(ip: String, name: String?) {
         if (!peers.containsKey(ip)) {
-            Peer peer = new Peer(ip, name);
-            peers.put(ip, peer);
+            val peer = Peer(ip, name)
+            peers.put(ip, peer)
             if (listener != null) {
-                listener.onPeerAdded(peer);
+                listener.onPeerAdded(peer)
             }
         }
     }
 
-    public void removePeer(String ip) {
-        Peer removed = peers.remove(ip);
+    fun removePeer(ip: String) {
+        val removed: Peer? = peers.remove(ip)
         if (removed != null && listener != null) {
-            listener.onPeerRemoved(removed);
+            listener.onPeerRemoved(removed)
         }
     }
 
-    private String getLocalIpAddress() {
-        try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements()) {
-                NetworkInterface iface = interfaces.nextElement();
-                Enumeration<InetAddress> addresses = iface.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    InetAddress addr = addresses.nextElement();
-                    if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) {
-                        return addr.getHostAddress();
+    private val localIpAddress: String
+        get() {
+            try {
+                val interfaces =
+                    NetworkInterface.getNetworkInterfaces()
+                while (interfaces.hasMoreElements()) {
+                    val iface = interfaces.nextElement()
+                    val addresses =
+                        iface.getInetAddresses()
+                    while (addresses.hasMoreElements()) {
+                        val addr = addresses.nextElement()
+                        if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) {
+                            return addr.getHostAddress()
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "IP error: " + e.message)
             }
-        } catch (Exception e) {
-            Log.e(TAG, "IP error: " + e.getMessage());
+            return "127.0.0.1"
         }
-        return "127.0.0.1";
+
+    companion object {
+        private const val TAG = "SendDropDiscovery"
+        private const val PORT = 9999
+        private const val DISCOVERY_MSG = "SENDDROP_DISCOVERY"
+        private const val RESPONSE_PREFIX = "SENDDROP_RESPONSE|"
     }
 }

@@ -1,22 +1,20 @@
-package com.senddrop.android;
+package com.senddrop.android
 
-import android.app.Application;
-import android.os.Environment;
+import android.app.Application
+import android.os.Environment
 
-public class App extends Application {
-    private static App instance;
-    public static String FILES_DIR;
-
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        instance = this;
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
         FILES_DIR = Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_DOWNLOADS
-        ).getAbsolutePath() + "/SendDrop/";
+            Environment.DIRECTORY_DOWNLOADS
+        ).getAbsolutePath() + "/SendDrop/"
     }
 
-    public static App getInstance() {
-        return instance;
+    companion object {
+        var instance: App? = null
+            private set
+        var FILES_DIR: String? = null
     }
 }
