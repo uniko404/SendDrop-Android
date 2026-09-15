@@ -1,7 +1,7 @@
 # 📡 SendDrop P2P for Android
 
 [![Version](https://img.shields.io/badge/version-0.2.0--alpha-blue)](https://github.com/uniko404/SendDrop-Android/releases)
-![License](https://img.shields.io/badge/license-GPL--3.0-green)
+[![License]([https://img.shields.io/badge/license-GPL--3.0-green](LICENSE)
 [![Android](https://img.shields.io/badge/Android-7.0+-brightgreen)](https://developer.android.com/)
 
 **SendDrop P2P for Android** — децентрализованный обмен файлами по локальной сети без сервера. Устройства видят друг друга автоматически, файлы передаются напрямую. Никаких серверов, никаких настроек.
